@@ -1,0 +1,123 @@
+name: Build Update Push
+
+# concurrency:
+#     group: production
+#     cancel-in-progress: true
+
+on:
+  push:
+    #branches: [github_actions_sse]
+    tags:
+        - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      stage:
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  AWS_REGION: us-east-1
+  NODE_OPTIONS: "--max_old_space_size=4096"
+  RELEASE_NAME: ${{ github.ref_name }}
+  ECR_REPOSITORY: worknet-dev-sse
+  STAGE: dev
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        name: Checkout Repository
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Get stage
+        run: |
+          stage=${{inputs.stage}}
+          echo "STAGE=${stage}" >> $GITHUB_ENV
+
+      - name: Get tag name
+        id: get_tag
+        run: |
+          echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
+          echo ${{ github.base_ref }}
+
+      - name: Get current branch name
+        id: get_branch
+        run: echo "::set-output name=branch_name::${GITHUB_REF#refs/heads/}"
+
+      - name: Update package.json version
+        run: |
+          ls
+          tag=${{ steps.get_tag.outputs.tag }}
+          jq --arg version "$tag" '.version = $version' package.json > package.tmp.json
+          mv package.tmp.json package.json
+          echo $tag
+    
+      # - name: Commit and push changes
+      #   run: |
+      #     cd apps/copilot-apis
+      #     ls
+      #     branch_name=update_service_scripts
+      #     git config --global user.name 'github-actions[bot]'
+      #     git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+      #     git checkout -b "${branch_name}" || git checkout "${branch_name}"
+      #     git add package.json
+      #     git commit -m "Update package.json version to ${{ steps.get_tag.outputs.tag }}"
+      #     git pull origin "${branch_name}"
+      #     git push origin "${branch_name}"
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      # - name: Install dependencies
+      #   run: pnpm install --frozen-lockfile --prefer-offline --ignore-scripts
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Copilot Apis
+        run: npm build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Get commit id
+        run: |
+          echo "commit_id=$(echo ${GITHUB_SHA::7})" >> $GITHUB_ENV
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.get_tag.outputs.tag }}
+          IMAGE_TAG2: latest
+        run: |
+          # Build a docker container and
+          # push it to ECR so that it can
+          # be deployed to ECR.
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG dist/docker/legacy_sse
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG2 dist/docker/legacy_sse
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG2
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG2" >> $GITHUB_OUTPUT
