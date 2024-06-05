@@ -1,4 +1,4 @@
-name: Dev Build CI
+name: Deploy To Dockerhub
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ jobs:
         name: Checkout Repository
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
           
@@ -37,4 +37,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ohansck/atheria-academy:latest
+          tags: ohansck/atheriahq-academy:latest
