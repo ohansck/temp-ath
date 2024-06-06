@@ -14,7 +14,7 @@ async function bootstrap() {
   const config = new DocumentBuilder()
     .setTitle('AtheriaHQ Academy (beta)')
     .setDescription('Test endpoints for tasks')
-    .setVersion('1.0.0')
+    .setVersion('1.0.1')
     .addTag('tech')
     .build();
   const document = SwaggerModule.createDocument(app, config);
